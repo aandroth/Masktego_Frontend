@@ -18,7 +18,7 @@ public class DEV_Testing : MonoBehaviour
     }
     public void SendNextServerResponse()
     {
-        m_backend.ReceivedMessage(m_nextServerResponse);
+        m_backend.ReceivedMessage_ForGameController(m_nextServerResponse, "");
         ++m_serverResponseIndex;
         if (m_serverResponseIndex < m_serverResponseArray.Length)
             m_nextServerResponse = m_serverResponseArray[m_serverResponseIndex];

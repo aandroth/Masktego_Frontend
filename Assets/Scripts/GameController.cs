@@ -52,7 +52,7 @@ public class GameController : MonoBehaviour
     {
         UnitData.InitializeUnitData();
         m_startPanel.m_changeGameMode = SetPlayMode;
-        m_backend.ReceivedMessageForGameController = null;// ReceivedMessage;
+        m_backend.ReceivedMessageForGameController = ReceivedMessage;
     }
 
 
