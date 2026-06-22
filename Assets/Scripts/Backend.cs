@@ -133,7 +133,9 @@ public class Backend : MonoBehaviour
                     ReceivedMessage_ForGameController(messageStruct.action, messageStruct.message);
                     break;
                 default:
-                    Debug.Log($"Unknown msgType: {messageStruct.msgType}");
+                    Debug.Log($"Unknown msgType: {messageStruct.msgType}"); 
+
+
                     break;
             }
         };
