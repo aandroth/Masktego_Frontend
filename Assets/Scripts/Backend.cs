@@ -1,7 +1,7 @@
 using NativeWebSocket;
 using System;
 using System.Collections;
-using System.Net.Sockets;
+using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -10,11 +10,14 @@ using static GameController;
 public class Backend : MonoBehaviour
 {
     public enum BACKEND_STATE    {
+        NONE,
         SOLO,
+        JUST_CONNECTED,
+        RESERVING_SERVER,
         STARTING_SERVER,
         JOINING_SERVER
     }
-    public BACKEND_STATE state = BACKEND_STATE.STARTING_SERVER;
+    public BACKEND_STATE state = BACKEND_STATE.NONE;
 
     public delegate void ReceivedMessageForGameControllerDelegate(string s, string t, string[] p);
     public ReceivedMessageForGameControllerDelegate ReceivedMessageForGameController;
@@ -40,6 +43,9 @@ public class Backend : MonoBehaviour
     [SerializeField] GameObject m_requestingServer;
     [SerializeField] GameObject m_joiningServer;
     [SerializeField] GameObject m_waitingForOtherPlayer;
+    [SerializeField] GameObject m_serverStarting;
+    [SerializeField] GameObject m_failedToConnect;
+    [SerializeField] TMP_Text m_serverNameTMP_Text;
 
     public static Backend Instance { get; private set; }
 
@@ -78,12 +84,48 @@ public class Backend : MonoBehaviour
         m_waitingPanel.SetActive(true);
         // Display connecting to websocket message
         m_waitingForWeb.SetActive(true);
+        Debug.Log($"StartServerSequence: State = {state}");
+        state = BACKEND_STATE.RESERVING_SERVER;
         await StartWebSocketConnection(m_apiWebsocketUrl);
+        if (m_connected)
+        {
+            Debug.Log($"StartServerSequence: State = {state}");
+            m_requestingServer.SetActive(true);
+        }
+        else
+        {
+            Debug.Log($"Websocket NOT connected, requesting new server failed. Setting state to NONE.");
+            state = BACKEND_STATE.NONE;
+            m_waitingPanel.SetActive(true);
+            m_failedToConnect.SetActive(true);
+        }
+    }
+    public async void JoinServerSequence()
+    {
+        Debug.Log($"Joining server sequence");
+        m_waitingPanel.SetActive(true);
+        // Display connecting to websocket message
+        m_waitingForWeb.SetActive(true);
+        state = BACKEND_STATE.JOINING_SERVER;
+        await StartWebSocketConnection(m_apiWebsocketUrl);
+        if (m_connected)
+        {
+            Debug.Log($"JoinServerSequence: State = {state}");
+            m_waitingPanel.SetActive(true);
+            m_waitingForWeb.SetActive(true);
+        }
+        else
+        {
+            Debug.Log($"Websocket NOT connected, joining server failed. Setting state to NONE.");
+            state = BACKEND_STATE.NONE;
+            m_waitingPanel.SetActive(true);
+            m_failedToConnect.SetActive(true);
+        }
     }
 
     public async System.Threading.Tasks.Task StartWebSocketConnection(string apiWebsocketUrl = "localhost")
     {
-        Debug.Log($"Websocket created with url {apiWebsocketUrl}");
+        Debug.Log($"Websocket about to be created with url {apiWebsocketUrl}");
         if (m_connected) await m_webSocket.Close();
 
         //m_webSocket = new WebSocket(fullUrl);
@@ -96,11 +138,9 @@ public class Backend : MonoBehaviour
             m_connected = true;
             Debug.Log("Wait for WebSocket connection is over.");
 
-            if (m_connected)
-            {
-                m_waitingForWeb.SetActive(false);
-                _ = SendMessageToWebsocket("on_connection", "on_connection");
-            }
+            m_connected = true;
+            m_waitingForWeb.SetActive(false);
+            _ = SendMessageToWebsocket("on_connection", "on_connection");
         };
 
         m_webSocket.OnError += (e) =>
@@ -127,15 +167,13 @@ public class Backend : MonoBehaviour
             switch (messageStruct.msgType)
             {
                 case "connection":
-                    ReceivedMessage_ForConnecting(messageStruct.action, messageStruct.message);
+                    _ = ReceivedMessage_ForConnecting(messageStruct.action, messageStruct.message);
                     break;
                 case "gameController":
                     ReceivedMessage_ForGameController(messageStruct.action, messageStruct.message);
                     break;
                 default:
-                    Debug.Log($"Unknown msgType: {messageStruct.msgType}"); 
-
-
+                    Debug.Log($"Unknown msgType: {messageStruct.msgType}");
                     break;
             }
         };
@@ -145,24 +183,27 @@ public class Backend : MonoBehaviour
 
         await m_webSocket.Connect();
 
-        var timeOut = 50000; // 5 seconds
-        while (!m_connected && timeOut > 0)
+        float timeToWait = 5f; // seconds
+        while (m_webSocket.State == WebSocketState.Connecting && timeToWait > 0)
         {
-            await Awaitable.WaitForSecondsAsync(1f);
-            timeOut -= 1000;
+            Debug.Log("Waiting for websocket to connect...");
+            await System.Threading.Tasks.Task.Delay(100);
+            timeToWait -= 0.1f;
         }
-        Debug.Log("Wait for WebSocket connection is over.");
 
-        if (m_connected)
+        if (m_webSocket.State == WebSocketState.Open)
         {
+            Debug.Log("Websocket connected successfully.");
             m_connected = true;
-            m_waitingForWeb.SetActive(false);
-            await SendMessageToWebsocket("on_connection", "on_connection");
-            //m_requestingServer.SetActive(true);
-            //_ = RequestNewServer();
+        }
+        else
+        {
+            Debug.Log("Websocket NOT connected, requesting new server failed. Setting state to NONE.");
+            state = BACKEND_STATE.NONE;
         }
     }
-    public void ReceivedMessage_ForConnecting(string action, string message = "")
+
+    public async Task ReceivedMessage_ForConnecting(string action, string message = "")
     {
         Debug.Log("ReceivedMessage_ForConnecting");
         Debug.Log($"Action: {action}, Message: {message}");
@@ -172,34 +213,72 @@ public class Backend : MonoBehaviour
                 m_waitingForWeb.SetActive(false);
                 switch (state)
                 {
-                    case BACKEND_STATE.STARTING_SERVER:
-                        Debug.Log($"Received on_connection message, so player requesting server");
+                    case BACKEND_STATE.RESERVING_SERVER:
+                        Debug.Log($"Received on_connection message, player reserving server");
                         m_requestingServer.SetActive(true);
-                        _ = RequestNewServer();
+                        await ReserveNewServer();
                         break;
                     case BACKEND_STATE.JOINING_SERVER:
                         Debug.Log($"Received on_connection message, so player finding servers");
-                        // Show server options
+                        _ = SendMessageToWebsocket("list_open_servers", "list_open_servers");
                         break;
                     case BACKEND_STATE.SOLO:
                         Debug.Log($"Received on_connection message, so connected to solo server");
                         break;
+                    default:
+                        Debug.Log($"Received on_connection message, but state is {state}, so not doing anything");
+                        break;
                 }
                 break;
-            case "server_name": // Server was created, player joined, and serverName was sent back to us
+            case "reserved_server_name": // Server was reserved
                 Debug.Log($"Server name set to {message}");
-                m_joiningServer.SetActive(false);
+                m_requestingServer.SetActive(false);
                 m_waitingForOtherPlayer.SetActive(true);
-                // Show panel with serverName and waiting for other player message
+                m_serverNameTMP_Text.text = message;
+                break;
+
+
+            case "joined_new_server": // player joined, and serverName was sent back to us
+                m_waitingForOtherPlayer.SetActive(false);
+                m_requestingServer.SetActive(true);
+                break;
+            case "other_joined": // player joined, and serverName was sent back to us
+                m_waitingForOtherPlayer.SetActive(false);
+                m_requestingServer.SetActive(true);
+                _ = RequestNewServer();
+                break;
+            case "joined_existing_server": // player joined server, and serverName was sent back to us
+                m_waitingForOtherPlayer.SetActive(false);
+                m_requestingServer.SetActive(true);
+                break;
+            case "server_list":
+                Debug.Log($"Got serverList: {message}");
+                m_waitingPanel.SetActive(false);
+                m_waitingForWeb.SetActive(false);
+                SendMessageToStartPanel("server_list", message);
+                break;
+            case "starting_server":
+                Debug.Log($"Got server starting message: {message}");
+                if (!m_waitingPanel.activeSelf) m_waitingPanel.SetActive(true);
+                if(m_waitingForOtherPlayer.activeSelf) m_waitingForOtherPlayer.SetActive(false);
+                m_serverStarting.SetActive(true);
+                state = BACKEND_STATE.STARTING_SERVER;
+                break;
+            case "ping": // Ping back to caller
+                Debug.Log($"Received ping message: {message}");
+                _ = SendMessageToWebsocket("ping", "ping");
                 break;
             case "Init": // Put aside all connecting panels
-                Debug.Log($"Server name set to {message}");
+                Debug.Log($"Server has initialized: {message}");
                 m_waitingForOtherPlayer.SetActive(false);
                 m_waitingPanel.SetActive(false);
                 break;
             case "game_over":
                 Debug.Log($"game_over, so server_ended");
                 // Clean up server data
+                break;
+            default:
+                Debug.Log($"ERROR: Unhandled action at backend: {action}");
                 break;
         }
     }
@@ -215,6 +294,10 @@ public class Backend : MonoBehaviour
                 CancelConnection();
                 break;
             case "Init":
+                m_waitingForOtherPlayer.SetActive(false);
+                m_waitingPanel.SetActive(false);
+                SendServerDataToGameController(message, action, playerData);
+                break;
             case "Player_1_Moved":
             case "Board_Update":
             case "Player_Swapped":
@@ -232,11 +315,11 @@ public class Backend : MonoBehaviour
 
 
 
-    public void SendMessageToStartPanel(string message)
+    public void SendMessageToStartPanel(string action, string message = "")
     {
         if (ReceivedMessageForStartPanel != null)
         {
-            ReceivedMessageForStartPanel.Invoke(message, "");
+            ReceivedMessageForStartPanel.Invoke(action, message);
             Debug.Log("Sent message to StartPanel!");
         }
         else
@@ -265,6 +348,18 @@ public class Backend : MonoBehaviour
         }
     }
 
+    public async System.Threading.Tasks.Task ReserveNewServer()
+    {
+        Debug.Log($"Reserving new server");
+        if (!m_connected)
+        {
+            Debug.LogError($"Not connected to backend, cannot reserve new server");
+            return;
+        }
+        Debug.Log($"Sending message: Reserving new server");
+        await SendMessageToWebsocket("reserve_server", "reserve_server");
+    }
+
     public async System.Threading.Tasks.Task RequestNewServer()
     {
         Debug.Log($"Requesting new server");
@@ -274,7 +369,22 @@ public class Backend : MonoBehaviour
             return;
         }
         Debug.Log($"Requesting new server");
-        _ = SendMessageToWebsocket("start_server", "start_server");
+        await SendMessageToWebsocket("start_server", "start_server");
+    }
+
+    public async System.Threading.Tasks.Task JoinServer(string serverName)
+    {
+        Debug.Log($"Joining server: {serverName}");
+        if (!m_connected)
+        {
+            Debug.LogError($"Not connected to backend, cannot join server");
+            m_waitingPanel.SetActive(true);
+            m_failedToConnect.SetActive(true);
+            return;
+        }
+        Debug.Log($"Joining server: {serverName}");
+        await SendMessageToWebsocket("join_server", serverName);
+
     }
 
     public async System.Threading.Tasks.Task SendMessageToWebsocket(string msgType, string message)
@@ -297,39 +407,18 @@ public class Backend : MonoBehaviour
         Debug.Log($"Sending: {msgRequest}");
         await m_webSocket?.SendText(msgRequest);
     }
-
-
-    public void RequestListOfServers(Action<string[]> callbackFn)
+    public async void SendSingleMessageToWebsocket(string message)
     {
-        StartCoroutine(RequestListOfServersCoroutine(callbackFn));
+        await SendMessageToWebsocket(message, message);
     }
 
-    public IEnumerator RequestListOfServersCoroutine(Action<string[]> callbackFn)
+
+    public async void RequestListOfServers(Action<string[]> callbackFn)
     {
-        Debug.Log($"Requesting all existing servers at {m_apiWebsocketUrl}/find_servers");
-        using (UnityWebRequest serverRequest = UnityWebRequest.Get(m_apiWebsocketUrl + "/find_servers"))
-        {
-            Debug.Log($"Request made");
-            yield return serverRequest.SendWebRequest();
-            string errorString = "There was an error? Of course there was an error. Why couldn't it just work!?\n- you, probably";
-            switch (serverRequest.result)
-            {
-                case UnityWebRequest.Result.ConnectionError:
-                case UnityWebRequest.Result.DataProcessingError:
-                case UnityWebRequest.Result.ProtocolError:
-                    Debug.Log(errorString);
-                    Debug.Log(serverRequest.result);
-                    callbackFn(new string[] { "localhost" });
-                    break;
-                case UnityWebRequest.Result.Success:
-                    var data = JsonUtility.FromJson<JsonClassList>(serverRequest.downloadHandler.text);
-                    Debug.Log($"RequestListOfServers SUCCESS: {(m_serverName)}, {data.body.Length}");
-                    callbackFn(data.body);
-                    break;
-            }
-        }
-        Debug.Log($"Request finished");
+        await SendMessageToWebsocket("request_list_of_servers", "request_list_of_servers");
     }
+
+
     public void ServerPing()
     {
         if (pingText == null) return;
@@ -347,8 +436,7 @@ public class Backend : MonoBehaviour
     public void PingToServer()
     {
         string pingRequest = $"Ping";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(pingRequest);
-        m_webSocket?.Send(bytes);
+        _ = SendMessageToWebsocket("Ping", "Ping");
     }
 
     public void SignalPlayerMovedToServer(int playerId, int[][] board)
@@ -359,8 +447,7 @@ public class Backend : MonoBehaviour
             //      0,             1
             string readyToServer = $"Player_{playerId}_Moved,{ConvertBoardToString(board)}";
 
-            var bytes = System.Text.Encoding.UTF8.GetBytes(readyToServer);
-            m_webSocket?.Send(bytes);
+            _ = SendMessageToWebsocket("server_message", readyToServer);
             Debug.Log($"Request finished");
         }
     }
@@ -373,8 +460,8 @@ public class Backend : MonoBehaviour
             //      0,        1,               2,               3
             string readyToServer = $"Board_Update,{playerId},{pos0.x}|{pos0.y},{pos1.x}|{pos1.y}";
 
-            var bytes = System.Text.Encoding.UTF8.GetBytes(readyToServer);
-            m_webSocket?.Send(bytes);
+
+            _ = SendMessageToWebsocket("server_message", readyToServer);
             Debug.Log($"Request finished");
         }
     }
@@ -387,8 +474,8 @@ public class Backend : MonoBehaviour
             //      0,        1,               2,               3
             string readyToServer = $"Player_Swapped,{playerId},{pos0.x}|{pos0.y},{pos1.x}|{pos1.y}";
 
-            var bytes = System.Text.Encoding.UTF8.GetBytes(readyToServer);
-            m_webSocket?.Send(bytes);
+
+            _ = SendMessageToWebsocket("server_message", readyToServer);
             Debug.Log($"Request finished");
         }
     }
@@ -401,8 +488,7 @@ public class Backend : MonoBehaviour
             //      0,  1
             string startGameRequest = $"Start_Game,";
 
-            var bytes = System.Text.Encoding.UTF8.GetBytes(startGameRequest);
-            m_webSocket?.Send(bytes);
+            _ = SendMessageToWebsocket("server_message", startGameRequest);
             Debug.Log($"Request finished");
         }
     }
@@ -412,42 +498,13 @@ public class Backend : MonoBehaviour
     {
         if (this == Instance && m_connected)
         {
-            StartCoroutine(RequestKillServerCoroutine());
-        }
-    }
+            //"Action, id
+            //      0,  1
+            string killGameRequest = $"Kill_Game,";
 
-    public IEnumerator RequestKillServerCoroutine()
-    {
-        if (this == Instance && m_connected)
-        {
-            string startGameRequest = $"Kill_Game,";
-
-            var bytes = System.Text.Encoding.UTF8.GetBytes(startGameRequest);
-            m_webSocket?.Send(bytes);
+            _ = SendMessageToWebsocket("server_message", killGameRequest);
             Debug.Log($"Request finished");
         }
-
-
-        Debug.Log($"Requesting kill server at {m_apiWebsocketUrl}/KillGame");
-        using (UnityWebRequest serverRequest = UnityWebRequest.Get(m_apiWebsocketUrl + "/KillGame"))
-        {
-            Debug.Log($"Request made");
-            yield return serverRequest.SendWebRequest();
-            string errorString = "There was an error? Of course there was an error. Why couldn't it just work!?\n- you, probably";
-            switch (serverRequest.result)
-            {
-                case UnityWebRequest.Result.ConnectionError:
-                case UnityWebRequest.Result.DataProcessingError:
-                case UnityWebRequest.Result.ProtocolError:
-                    Debug.Log(errorString);
-                    Debug.Log(serverRequest.result);
-                    break;
-                case UnityWebRequest.Result.Success:
-                    Debug.Log($"RequestListOfServers SUCCESS: {(m_serverName)}");
-                    break;
-            }
-        }
-        Debug.Log($"Request finished");
     }
 
 

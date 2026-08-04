@@ -559,6 +559,7 @@ public class GameController : MonoBehaviour
         switch (action)
         {
             case "Init":
+                SetPlayMode(int.Parse(serverData[0]));
                 m_playerId = id;
                 m_playerType = id == 1 ? PLAYER_TYPE.PLAYER_1 : PLAYER_TYPE.PLAYER_2;
                 m_controlsFrozen = m_playerType == PLAYER_TYPE.PLAYER_1 ? false : true;

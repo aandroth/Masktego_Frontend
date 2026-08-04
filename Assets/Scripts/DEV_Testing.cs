@@ -28,7 +28,7 @@ public class DEV_Testing : MonoBehaviour
         string[] serverList = new string[m_serverListCount];
         for (int i = 0; i < m_serverListCount; ++i)
         {
-            serverList[i] = "LOcalHost";
+            serverList[i] = "LocalHost";
         }
         m_startPanel.ParseServerList(serverList);
     }

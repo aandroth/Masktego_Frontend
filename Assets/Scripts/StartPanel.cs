@@ -20,8 +20,18 @@ public class StartPanel : MonoBehaviour
     public delegate void ChangeGameModeDelegate(PLAY_MODE playMode);
     public ChangeGameModeDelegate m_changeGameMode;
 
-    void Start()
+    public static StartPanel Instance { get; private set; }
+
+    void Awake()
     {
+        // If there is an instance, and it's not me, delete myself.
+        if (Instance != null && Instance != this)
+            Destroy(this);
+        else
+        {
+            Instance = this;
+        }
+
         if (m_backend == null)
         {
             m_backend = Backend.Instance;
@@ -30,6 +40,36 @@ public class StartPanel : MonoBehaviour
             {
                 Debug.Log($"No backend found");
             }
+        }
+    }
+
+    public void OnEnable()
+    {
+        if(m_backend) 
+        {
+            m_backend.ReceivedMessageForStartPanel += ReceiveMessageFromBackend;
+        }   
+    }
+
+    public void OnDisable()
+    {
+        if(m_backend) 
+        {
+            m_backend.ReceivedMessageForStartPanel -= ReceiveMessageFromBackend;
+        }   
+    }
+
+
+    public void ReceiveMessageFromBackend(string action, string message = "")
+    {
+        switch (action)
+        {
+            case "server_list":
+                ParseServerList(message.Split(','));
+                break;
+            default:
+                Debug.Log($"Unknown action: {action}");
+                break;
         }
     }
 
@@ -76,6 +116,9 @@ public class StartPanel : MonoBehaviour
 
     public void ParseServerList(string[] serverListResult)
     {
+        var startPanelObjects = GameObject.FindObjectsByType<StartPanel>(FindObjectsSortMode.None);
+        Debug.Log($"StartPanels found: {startPanelObjects.Length}");
+
         DestroyButtonsInIpAddressPanel();
         if (serverListResult.Length > 0)
         {
@@ -92,24 +135,31 @@ public class StartPanel : MonoBehaviour
         }
         for (int i = 0; i < servers.Length; ++i)
         {
+            string serverName = servers[i];
             GameObject newButton = Instantiate(m_buttonPrefab, m_buttonParent?.transform);
-            newButton.GetComponent<ServerButton>().AssignButtonParameters(servers[i], m_backend.SetServerName, CallBackendForServerConnect);
-            newButton.GetComponentInChildren<TMP_Text>().text = servers[i];
+            newButton.GetComponent<ServerButton>().AssignButtonParameters($"{serverName}", m_backend.SetServerName, () => CallBackendToJoinGame($"{serverName}"));
+            newButton.GetComponentInChildren<TMP_Text>().text = serverName;
             m_ipButtonsList.Add(newButton);
         }
     }
 
-    public void CreateHostIpAddressButton()
+    public void CallBackendToJoinGame(string serverName)
     {
-        if (m_backend == null)
-        {
-            Debug.Log($"No backend found");
-            return;
-        }
-        GameObject hostButton = Instantiate(m_buttonPrefab, m_buttonParent?.transform);
-        hostButton.GetComponent<ServerButton>().AssignButtonParameters("localhost", m_backend.SetServerName, CallBackendForServerConnect);
-        m_ipButtonsList.Insert(0, hostButton);
+        m_changeGameMode(PLAY_MODE.ONLINE);
+        _ = m_backend?.JoinServer(serverName);
     }
+
+    //public void CreateHostIpAddressButton()
+    //{
+    //    if (m_backend == null)
+    //    {
+    //        Debug.Log($"No backend found");
+    //        return;
+    //    }
+    //    GameObject hostButton = Instantiate(m_buttonPrefab, m_buttonParent?.transform);
+    //    hostButton.GetComponent<ServerButton>().AssignButtonParameters("localhost", m_backend.SetServerName, CallBackendForServerConnect);
+    //    m_ipButtonsList.Insert(0, hostButton);
+    //}
 
     public void DestroyButtonsInIpAddressPanel()
     {
