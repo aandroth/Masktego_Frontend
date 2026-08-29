@@ -179,7 +179,8 @@ public class GameController : MonoBehaviour
 
             if(m_playMode == PLAY_MODE.ONLINE)
                 SendSwapToServer(unitPos0, unitPos1);
-            PlayerMoveFinished();
+            else
+                PlayerMoveFinished();
         }
         else
         {
@@ -559,7 +560,7 @@ public class GameController : MonoBehaviour
         switch (action)
         {
             case "Init":
-                SetPlayMode(int.Parse(serverData[0]));
+                SetPlayMode(int.Parse(serverData[2]));
                 m_playerId = id;
                 m_playerType = id == 1 ? PLAYER_TYPE.PLAYER_1 : PLAYER_TYPE.PLAYER_2;
                 m_controlsFrozen = m_playerType == PLAYER_TYPE.PLAYER_1 ? false : true;

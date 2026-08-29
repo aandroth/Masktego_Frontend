@@ -236,8 +236,6 @@ public class Backend : MonoBehaviour
                 m_waitingForOtherPlayer.SetActive(true);
                 m_serverNameTMP_Text.text = message;
                 break;
-
-
             case "joined_new_server": // player joined, and serverName was sent back to us
                 m_waitingForOtherPlayer.SetActive(false);
                 m_requestingServer.SetActive(true);
@@ -389,7 +387,7 @@ public class Backend : MonoBehaviour
 
     public async System.Threading.Tasks.Task SendMessageToWebsocket(string msgType, string message)
     {
-        Debug.Log($"Sending message: {message}");
+        Debug.Log($"Sending message to websocket, with action: {msgType}, and message: {message}");
         MessageStruct messageStruct = new MessageStruct
         {
             route = "message",
@@ -555,9 +553,16 @@ public class Backend : MonoBehaviour
         if (this == Instance)
         {
             Debug.Log($"CancelConnection called");
-            if (m_webSocket != null && this.m_connected)
+            try
             {
-                m_webSocket?.CancelConnection();
+                if (m_webSocket != null && this.m_connected)
+                {
+                    m_webSocket?.CancelConnection();
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error while cancelling connection: {e.Message}");
             }
             m_connected = false;
         }
