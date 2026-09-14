@@ -541,10 +541,10 @@ public class GameController : MonoBehaviour
     }
 
 
-    public void ReceivedMessage(string data, string action, string[] serverData)
+    public void ReceivedMessage(string data, string action, string[] serverData = null)
     {
         int id = -1;
-        if (serverData.Length >= 2)
+        if (serverData != null && serverData.Length >= 2)
         {
             try
             {
@@ -560,7 +560,7 @@ public class GameController : MonoBehaviour
         switch (action)
         {
             case "Init":
-                SetPlayMode(int.Parse(serverData[2]));
+                if(serverData != null && serverData.Length >= 3) SetPlayMode(int.Parse(serverData[2]));
                 m_playerId = id;
                 m_playerType = id == 1 ? PLAYER_TYPE.PLAYER_1 : PLAYER_TYPE.PLAYER_2;
                 m_controlsFrozen = m_playerType == PLAYER_TYPE.PLAYER_1 ? false : true;
@@ -571,7 +571,7 @@ public class GameController : MonoBehaviour
                 FlipAllEnemyUnits();
                 break;
             case "Board_Update":
-                if (m_playMode != PLAY_MODE.SOLO)
+                if (m_playMode != PLAY_MODE.SOLO && serverData != null)
                     GetBoardDataFromServer(serverData);
                 break;
             case "Player_1_Turn":
